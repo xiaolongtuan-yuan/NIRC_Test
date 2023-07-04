@@ -13,23 +13,22 @@ import env
 import load_trace
 
 
-S_INFO = 6  # bit_rate, buffer_size, next_chunk_size, bandwidth_measurement(throughput and time), chunk_til_video_end
-S_LEN = 8  # take how many frames in the past
+S_INFO = 6
+S_LEN = 8
 A_DIM = 6
 ACTOR_LR_RATE = 0.0001
 CRITIC_LR_RATE = 0.001
-VIDEO_BIT_RATE = [300,750,1200,1850,2850,4300]  # Kbps
+VIDEO_BIT_RATE = [300,750,1200,1850,2850,4300]
 BUFFER_NORM_FACTOR = 10.0
 CHUNK_TIL_VIDEO_END_CAP = 48.0
 M_IN_K = 1000.0
-REBUF_PENALTY = 4.3  # 1 sec rebuffering -> 3 Mbps
+REBUF_PENALTY = 4.3
 SMOOTH_PENALTY = 1
-DEFAULT_QUALITY = 1  # default video quality without agent
+DEFAULT_QUALITY = 1
 RANDOM_SEED = 42
 RAND_RANGE = 1000
 LOG_FILE = './test_results/log_sim_rl'
 TEST_TRACES = './cooked_test_traces/'
-# log in format of time_stamp bit_rate buffer_size rebuffer_time chunk_size download_time reward
 NN_MODEL = sys.argv[1]
 
 
@@ -56,10 +55,10 @@ def main():
     log_file = open(log_path, 'w')
 
 
-    actor = a2c_torch.ActorNet(s_dim=[S_INFO, S_LEN], a_dim=A_DIM,
+    actor = a3c_torch.ActorNet(s_dim=[S_INFO, S_LEN], a_dim=A_DIM,
                                 lr=ACTOR_LR_RATE)
 
-    critic = a2c_torch.CriticNet(s_dim=[S_INFO, S_LEN],
+    critic = a3c_torch.CriticNet(s_dim=[S_INFO, S_LEN],
                                 lr=CRITIC_LR_RATE)
 
 
@@ -150,7 +149,7 @@ def main():
 
         s_batch.append(state)
 
-        entropy_record.append(a2c_torch.compute_entropy(action_prob[0]))
+        entropy_record.append(a3c_torch.compute_entropy(action_prob[0]))
 
         if end_of_video:
             log_file.write('\n')

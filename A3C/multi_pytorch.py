@@ -47,12 +47,12 @@ def convert_torch(variable, dtype=np.float32):
     return torch.from_numpy(variable)
 
 
-def testing(epoch, nn_model, log_file):
+def testing(epoch, nn_model, log_file): #  对当前训练的模型在测试网络中进行测试，这里创建新的进程来测试模型，将测试数据保存在log文件中
     # clean up the test results folder
     os.system('rm -r ' + TEST_LOG_FOLDER)
     os.system('mkdir ' + TEST_LOG_FOLDER)
 
-    os.system('python rl_test_pytorch.py ' + nn_model)
+    os.system('python rl_test_pytorch.py ' + nn_model)  # 创建新进程，运行rl_test_pytorch.py测试当前模型
     
     # 测试代码将结果存储在log文件中，读取log，绘图
     rewards = []
@@ -85,10 +85,10 @@ def testing(epoch, nn_model, log_file):
                    str(rewards_95per) + '\t' +
                    str(rewards_max) + '\n')
     log_file.flush()
-    
-    return rewards_mean
+    #  收集测试数据
+    return rewards_mean  # 返回总回报的期望
 
-
+# 中央agent，使用agent提供的与环境交互数据训练actor和critic两个网络
 def central_agent(net_params_queues, exp_queues):
 
     assert len(net_params_queues) == NUM_AGENTS
@@ -100,21 +100,21 @@ def central_agent(net_params_queues, exp_queues):
 
     write_test = SummaryWriter(SUMMARY_DIR)
     with open(LOG_FILE + '_test', 'w') as test_log_file:
-        actor = a2c_torch.ActorNet(s_dim=[S_INFO, S_LEN], a_dim=A_DIM, lr=ACTOR_LR_RATE)
-        critic = a2c_torch.CriticNet(s_dim =[S_INFO, S_LEN], lr=CRITIC_LR_RATE)
+        actor = a3c_torch.ActorNet(s_dim=[S_INFO, S_LEN], a_dim=A_DIM, lr=ACTOR_LR_RATE)  # 初始化两个网络
+        critic = a3c_torch.CriticNet(s_dim =[S_INFO, S_LEN], lr=CRITIC_LR_RATE)
 
         
-        actor_optim = optim.RMSprop(actor.parameters(), lr=ACTOR_LR_RATE)
+        actor_optim = optim.RMSprop(actor.parameters(), lr=ACTOR_LR_RATE)  # 两个优化器
         critic_optim = optim.RMSprop(critic.parameters(), lr=CRITIC_LR_RATE)
         
         epoch = 0
-        while True:
+        while True:  # 不停止的学习训练
             actor_net_params = actor.state_dict()
             critic_net_params = critic.state_dict()
             # print(actor_net_params)
             for i in range(NUM_AGENTS):
 
-                net_params_queues[i].put([actor_net_params, critic_net_params])
+                net_params_queues[i].put([actor_net_params, critic_net_params])  # 将最新训练的网络权重赋予agent使用
             # print('parameters hahaha: ', actor_net_params)
             # print('parameters: ', list(actor_net_params))
             total_batch_len = 0.0
@@ -124,7 +124,7 @@ def central_agent(net_params_queues, exp_queues):
             total_agents = 0.0 
             actor_optim.zero_grad()
             critic_optim.zero_grad()
-            for i in range(NUM_AGENTS):
+            for i in range(NUM_AGENTS):  # 依次从agent中取与环境交互的数据进行训练
                 s_batch, a_batch, r_batch, old_pi_batch, terminal, info = exp_queues[i].get()
                 # print('exp_queue')
                 s_batch, a_batch, \
@@ -143,7 +143,7 @@ def central_agent(net_params_queues, exp_queues):
                 total_batch_len += len(r_batch.numpy())
                 total_agents += 1.0
                 total_entropy += np.sum(info['entropy'])
-            critic_optim.step()
+            critic_optim.step()  # 更新两个网络
             actor_optim.step()
             # actor.cpu(), critic.cpu()
             epoch += 1
@@ -156,7 +156,7 @@ def central_agent(net_params_queues, exp_queues):
             #              ' Avg_reward: ' + str(avg_reward) +
             #              ' Avg_entropy: ' + str(avg_entropy))
 
-            if epoch % MODEL_SAVE_INTERVAL == 0:
+            if epoch % MODEL_SAVE_INTERVAL == 0:   # 间隔几次epoch保存一下模型权重，同时记录实验数据以便进行绘图
                 # Save the neural net parameters to disk.
                 print('Epoch = ', epoch)
                 torch.save(actor.state_dict(), SUMMARY_DIR + "/actor_nn_model_ep_" +
@@ -167,34 +167,26 @@ def central_agent(net_params_queues, exp_queues):
                 # logging.info("Model saved in file: " + save_path)
                 reward_mean = testing(epoch, 
                     SUMMARY_DIR + "/actor_nn_model_ep_" + str(epoch) + ".pkl", 
-                    test_log_file)
+                    test_log_file)  # 测试模型，返回回报期望
                 
                 print('epoch = ', epoch, 'reward = ', reward_mean)
-                write_test.add_scalar('Testing/total_reward', reward_mean, epoch)
-                write_test.add_scalar('Training/Entropy', avg_entropy, epoch)
-                write_test.add_scalar('Training/TD_Error', avg_td_loss, epoch)
+                write_test.add_scalar('Testing/total_reward', reward_mean, epoch)  # 在tensorboard中记录总回报期望
+                write_test.add_scalar('Training/Entropy', avg_entropy, epoch)  # 在tensorboard中记录熵，熵表示模型的稳定性
+                write_test.add_scalar('Training/TD_Error', avg_td_loss, epoch)  # # 在tensorboard中记录损失值
 
                 write_test.flush()
-                # summary_str = sess.run(summary_ops, feed_dict={
-                #     summary_vars[0]: avg_td_loss,
-                #     summary_vars[1]: reward_mean,
-                #     summary_vars[2]: avg_entropy
-                # })
-
-                # writer.add_summary(summary_str, epoch)
-                # writer.flush()
         
 
-
+# agent 不断的更新中央agent赋予的最新网络权重，与环境进行交互
 def agent(agent_id, all_cooked_time, all_cooked_bw, net_params_queue, exp_queue):
     
     net_env = env.Environment(all_cooked_time=all_cooked_time,
                               all_cooked_bw=all_cooked_bw,
-                              random_seed=agent_id)
+                              random_seed=agent_id)  # 初始化各自的强化学习环境
 
     with open(LOG_FILE + '_agent_' + str(agent_id), 'w') as log_file:
-        actor = a2c_torch.ActorNet(s_dim=[S_INFO, S_LEN], a_dim=A_DIM, lr=ACTOR_LR_RATE)
-        critic = a2c_torch.CriticNet(s_dim =[S_INFO, S_LEN], lr=CRITIC_LR_RATE)
+        actor = a3c_torch.ActorNet(s_dim=[S_INFO, S_LEN], a_dim=A_DIM, lr=ACTOR_LR_RATE)  # 初始化两个网络
+        critic = a3c_torch.CriticNet(s_dim =[S_INFO, S_LEN], lr=CRITIC_LR_RATE)
 
         # 从中央Agent同步最新的网络参数
         actor_net_params, critic_net_params = net_params_queue.get()
@@ -262,7 +254,7 @@ def agent(agent_id, all_cooked_time, all_cooked_bw, net_params_queue, exp_queue)
             # 注意:我们需要将概率离散为1/RAND_RANGE步长，
             # 因为传递单个状态和批状态存在内在的差异
 
-            entropy_record.append(a2c_torch.compute_entropy(action_prob[0]))
+            entropy_record.append(a3c_torch.compute_entropy(action_prob[0]))
 
             log_file.write(str(time_stamp) + '\t' +
                            str(VIDEO_BIT_RATE[bit_rate]) + '\t' +
@@ -273,7 +265,7 @@ def agent(agent_id, all_cooked_time, all_cooked_bw, net_params_queue, exp_queue)
                            str(reward) + '\n')
             log_file.flush()
 
-            # worker向中央agent汇报经验
+            # agent向中央agent汇报经验
             if len(r_batch) >= TRAIN_SEQ_LEN or end_of_video:
                 exp_queue.put([s_batch[1:],  # ignore the first chuck
                                a_batch[1:],  # since we don't have the
@@ -295,7 +287,7 @@ def agent(agent_id, all_cooked_time, all_cooked_bw, net_params_queue, exp_queue)
 
                 log_file.write('\n')
 
-            if end_of_video:
+            if end_of_video:  # 视频下载完了，本轮结束，将last_bit_rate、bit_rate恢复默认初始值
                 last_bit_rate = DEFAULT_QUALITY
                 bit_rate = DEFAULT_QUALITY
                 
@@ -317,27 +309,27 @@ def agent(agent_id, all_cooked_time, all_cooked_bw, net_params_queue, exp_queue)
 
 
 def main():
-
+    # 设置随机种子
     np.random.seed(RANDOM_SEED)
     assert len(VIDEO_BIT_RATE) == A_DIM
 
     if not os.path.exists(SUMMARY_DIR):
         os.makedirs(SUMMARY_DIR)
 
-    net_params_queues = []
-    exp_queues = []
+    net_params_queues = []  # agent各自使用的网络权重列表，长度为agent的个数
+    exp_queues = []  # 同上，保存各个agent与环境交互的数据
     
     for i in range(NUM_AGENTS):
         net_params_queues.append(mp.Queue(1))
         exp_queues.append(mp.Queue(1))
     
     coordinator = mp.Process(target=central_agent,
-                             args=(net_params_queues, exp_queues))
+                             args=(net_params_queues, exp_queues))  # 中央agent线程
     
     coordinator.start() # 启动中央Agent
 
-    all_cooked_time, all_cooked_bw, _ = load_trace.load_trace(TRAIN_TRACES)
-    agents = []
+    all_cooked_time, all_cooked_bw, _ = load_trace.load_trace(TRAIN_TRACES)  # 加载网络追踪数据
+    agents = []  # 存储agent各线程的列表
     for i in range(NUM_AGENTS):
         agents.append(mp.Process(target=agent,
                                  args=(i, all_cooked_time, all_cooked_bw,
@@ -346,7 +338,7 @@ def main():
     for i in range(NUM_AGENTS):
         agents[i].start()
 
-    coordinator.join()
+    coordinator.join()  # 等待线程结束
 
 
 if __name__ == '__main__':
